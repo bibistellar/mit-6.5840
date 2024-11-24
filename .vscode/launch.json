@@ -1,0 +1,37 @@
+{
+    "configurations": [
+        {
+            "name": "Build and Run Coordinator",
+            "type": "go",
+            "request": "launch",
+            // "mode": "debug",
+            "preLaunchTask": "Build and Clean",
+            "program": "${workspaceFolder}/main/mrcoordinator.go",
+            "args": ["${workspaceFolder}/main/pg-*.txt"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Run Worker",
+            "type": "go",
+            "request": "launch",
+            // "mode": "debug",
+            "program": "${workspaceFolder}/main/mrworker.go",
+            "args": ["${workspaceFolder}/mrapps/wc.so"],
+            "console": "integratedTerminal"
+        },
+    ],
+    "compounds": [
+        {
+            "name": "Compound",
+            "configurations": [
+                "Build and Run Coordinator",
+                "Run Worker"
+            ],
+            "presentation": {
+                "hidden": false,
+                "group": "",
+                "order": 1
+            }
+        }
+    ]
+}

@@ -1,0 +1,42 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Plugin",
+            "type": "shell",
+            "command": "go",
+            "args": [
+                "build",
+                "-buildmode=plugin",
+                "${workspaceFolder}/mrapps/wc.go"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Remove Output Files",
+            "type": "shell",
+            "command": "sh",
+            "args": [
+                "-c",
+                "[ -e ${workspaceFolder}/main/mr-out* ] && rm ${workspaceFolder}/main/mr-out*"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build and Clean",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                // "Remove Output Files",
+                "Build Plugin"
+            ]
+        }
+    ]
+}
