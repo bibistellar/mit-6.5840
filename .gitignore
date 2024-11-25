@@ -2,3 +2,8 @@ pkg/
 api.key
 .api.key.trimmed
 *-handin.tar.gz
+mr-tmp
+*.so
+main/mrcoordinator
+main/mrsequential
+main/mrworker

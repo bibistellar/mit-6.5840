@@ -8,6 +8,11 @@
             "args": [
                 "build",
                 "-buildmode=plugin",
+                "-o",
+                "${workspaceFolder}/mrapps/wc.so",
+                "-o",
+                "${workspaceFolder}/main/wc.so",
+                "-gcflags='all=-N -l'",
                 "${workspaceFolder}/mrapps/wc.go"
             ],
             "group": {

@@ -33,6 +33,7 @@ func loadPlugin(filename string) (func(string, string) []mr.KeyValue, func(strin
 	p, err := plugin.Open(filename)
 	if err != nil {
 		log.Fatalf("cannot load plugin %v", filename)
+		print(err)
 	}
 	xmapf, err := p.Lookup("Map")
 	if err != nil {
