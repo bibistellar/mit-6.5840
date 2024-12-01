@@ -7,3 +7,4 @@ mr-tmp
 main/mrcoordinator
 main/mrsequential
 main/mrworker
+kvsrv/logs

@@ -2,10 +2,11 @@ package kvsrv
 
 import (
 	"log"
-	// "os"
-	// "path/filepath"
+	"os"
+	"path/filepath"
 	"sync"
-	// "strconv"
+	"strconv"
+	"strings"
 )
 
 const Debug = false
@@ -17,76 +18,71 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
-
 type KVServer struct {
 	mu sync.Mutex
 	// Your definitions here.
-	key_values   map[string]string
-	logs map[int]LogValue
+	key_values map[string]string
+	logDir     string
+}
+
+func (kv *KVServer) readLog(id int) LogValue {
+	filePath := filepath.Join(kv.logDir, strconv.Itoa(id))
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		// 如果文件不存在，返回默认的 LogValue
+		return LogValue{0, ""}
+	}
+	parts := strings.SplitN(string(data), "|", 2)
+	count, _ := strconv.Atoi(parts[0])
+	value := parts[1]
+	return LogValue{count, value}
+}
+
+func (kv *KVServer) writeLog(id int, log LogValue) {
+	filePath := filepath.Join(kv.logDir, strconv.Itoa(id))
+	data := strconv.Itoa(log.count) + "|" + log.Value
+	os.WriteFile(filePath, []byte(data), 0644)
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
 	kv.mu.Lock()
-	log,exist := kv.logs[args.Id]
-	if(!exist){
-		log := LogValue{0,""}
-		kv.logs[args.Id] = log
-	}
+	defer kv.mu.Unlock()
+	log := kv.readLog(args.Id)
 	if log.count != args.OpCount {
 		reply.Value = kv.key_values[args.Key]
-		kv.logs[args.Id] =  LogValue{args.OpCount,reply.Value}
-	}else {
-		// print("Server:重复Get\n")
-		reply.Value= kv.logs[args.Id].Value
+		kv.writeLog(args.Id, LogValue{args.OpCount, reply.Value})
+	} else {
+		reply.Value = log.Value
 	}
-	kv.mu.Unlock()
 }
 
 func (kv *KVServer) Put(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
 	kv.mu.Lock()
-	log,exist := kv.logs[args.Id]
-	if(!exist){
-		log := LogValue{0,""}
-		kv.logs[args.Id] = log
-	}
-	if log.count != args.OpCount  {
+	defer kv.mu.Unlock()
+	log := kv.readLog(args.Id)
+	if log.count != args.OpCount {
 		kv.key_values[args.Key] = args.Value
-		// WriteLog(id_s,args.OpCount)
-		// kv.logs[args.Id] =  LogValue{args.OpCount,"",time.Now()}
-		// print("Server:Put:",args.Value,"当前:","key:",args.Key,"value:",kv.key_values[args.Key],"\n")
-	}else {
-		// print("Server:重复Put\n")
+		kv.writeLog(args.Id, LogValue{args.OpCount, ""})
 	}
-	kv.mu.Unlock()
 }
 
 func (kv *KVServer) Append(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
 	kv.mu.Lock()
-	log,exist := kv.logs[args.Id]
-	if(!exist){
-		log := LogValue{0,""}
-		kv.logs[args.Id] = log
-	}
-	if log.count != args.OpCount{
+	defer kv.mu.Unlock()
+	log := kv.readLog(args.Id)
+	if log.count != args.OpCount {
 		reply.Value = kv.key_values[args.Key]
 		kv.key_values[args.Key] += args.Value
-		// WriteLog(id_s,args.OpCount)
-		kv.logs[args.Id] =  LogValue{args.OpCount,reply.Value}
-		// print("Server:Append:",args.Value,"当前:","key:",args.Key,"value:",kv.key_values[args.Key],"\n")
-	}else {
-		// print("Server:重复Append\n")
-		reply.Value= kv.logs[args.Id].Value
+		kv.writeLog(args.Id, LogValue{args.OpCount, reply.Value})
+	} else {
+		reply.Value = log.Value
 	}
-	kv.mu.Unlock()
 }
 
 func StartKVServer() *KVServer {
 	kv := new(KVServer)
-	// You may need initialization code here.
 	kv.key_values = make(map[string]string)
-	kv.logs = make(map[int]LogValue)
+	kv.logDir = "logs"
+	os.MkdirAll(kv.logDir, os.ModePerm)
 	return kv
 }
