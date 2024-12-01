@@ -1,7 +1,7 @@
 {
     "configurations": [
         {
-            "name": "Build and Run Coordinator",
+            "name": "Lab1:Build and Run Coordinator",
             "type": "go",
             "request": "launch",
             "mode": "debug",
@@ -10,7 +10,7 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Run Worker",
+            "name": "Lab1:Run Worker",
             "type": "go",
             "request": "launch",
             "mode": "debug",
@@ -19,13 +19,21 @@
             "args": ["${workspaceFolder}/main/wc.so"],
             "console": "integratedTerminal"
         },
+        {
+            "name": "Lab2:Test",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${workspaceFolder}/kvsrv/test_test.go",
+            "console": "integratedTerminal"
+        }
     ],
     "compounds": [
         {
-            "name": "Compound",
+            "name": "Lab1:Compound",
             "configurations": [
-                "Build and Run Coordinator",
-                "Run Worker"
+                "Lab1:Build and Run Coordinator",
+                "Lab1:Run Worker"
             ],
             "presentation": {
                 "hidden": false,
