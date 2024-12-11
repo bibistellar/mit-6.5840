@@ -23,11 +23,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
+	"strconv"
 	//	"6.5840/labgob"
 	"6.5840/labrpc"
 )
-
 
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -61,7 +60,14 @@ type Raft struct {
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
+	state string //节点状态，follower,candidate,leader,初始时为follower
+	heartbeat_timer int64 //心跳计时器，归0启动选举
 
+	currentTerm int //当前周期
+	votedFor int //当前周期收到的candidate id,可以置为null
+	
+	commitIndex int 
+	lastApplied int 
 }
 
 // return currentTerm and whether this server
@@ -71,6 +77,14 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (3A).
+	rf.mu .Lock()
+	term = rf.currentTerm
+	if(rf.state == "leader"){
+		isleader = true
+	} else {
+		isleader = false
+	}
+	rf.mu.Unlock()
 	return term, isleader
 }
 
@@ -123,22 +137,77 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
+type AppendEntriesArgs struct{
+	Term int
+	LeaderId int 	
+}
+
+type AppendEntriesReply struct{
+	Term int 
+	Success int
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	// print("id:"+strconv.Itoa(rf.me) + " " + "got vote AppendEntries,from " +strconv.Itoa(args.LeaderId) + " term:" + strconv.Itoa(args.Term) + "\n")
+	// 心跳计时器，如果entries为空，重置心跳定时器
+	rf.mu.Lock()
+	if(args.Term >= rf.currentTerm){
+		rf.votedFor = -1
+		rf.currentTerm = args.Term
+		rf.state = "follower"
+		rf.votedFor = -1
+		rf.heartbeat_timer = 500;
+	}
+	rf.mu.Unlock()
+}
+
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
 
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
+	Term int 
+	CandidateId int 
+	LastLogIndex int 
+	LastLogTerm int
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (3A).
+	Term int 
+	VoteGranted bool
 }
 
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
+	//处理请求，投票给候选者，只能投一票,,遵循先到先得原则
+	// print("id:"+strconv.Itoa(rf.me) + " " + "got vote request,from " +strconv.Itoa(args.CandidateId) + " term:" + strconv.Itoa(args.Term) + "\n")
+	if(args.Term>rf.currentTerm){//最新的投票请求
+		rf.currentTerm = args.Term
+		rf.votedFor = args.CandidateId
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = true //已投票给你了
+		rf.mu.Lock()
+		rf.heartbeat_timer = 500
+		rf.state = "follower"
+		rf.mu.Unlock()
+		// print("id:"+strconv.Itoa(rf.me) + " " + "vote for " +strconv.Itoa(args.CandidateId) +  "\n")
+	} else if(args.Term == rf.currentTerm){//本轮已经投过票了
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false //没票了
+		// print("id:"+strconv.Itoa(rf.me) + " " + "has voted for " +strconv.Itoa(rf.votedFor) +  "\n")
+	} else {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false //让candidate节点先更新自己的状态
+		// print("id:"+strconv.Itoa(rf.me) + " " + "newer than  " +strconv.Itoa(args.CandidateId) +  "\n")
+	}
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -168,7 +237,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // capitalized all field names in structs passed over RPC, and
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {//应该有超时的逻辑
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
@@ -209,6 +278,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
+	print("id:"+strconv.Itoa(rf.me) + " killed\n")
 }
 
 func (rf *Raft) killed() bool {
@@ -218,14 +288,112 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-
+		// print("ticker\n")
+		ms := 50 + (rand.Int63() % 300)
 		// Your code here (3A)
 		// Check if a leader election should be started.
-
-
+		// print("id:"+strconv.Itoa(rf.me) + " " + rf.state + "\n")
+		switch rf.state {
+		case "follower":
+			// print("id:"+strconv.Itoa(rf.me) + " " + "follower\n")
+			rf.heartbeat_timer -= ms
+			if(rf.heartbeat_timer < 0 ){
+				//启动选举
+				rf.mu.Lock()
+				rf.state = "candidate"
+				rf.mu.Unlock()
+			}
+		case "leader":
+			// print("id:"+strconv.Itoa(rf.me) + " " + "being leader\n")
+			for server :=  range rf.peers{
+				if(server != rf.me){
+					// print("id:"+strconv.Itoa(rf.me) + " " + "sending appendentries to "+strconv.Itoa(server)+ " term:" +strconv.Itoa(rf.currentTerm) + "\n")
+					args := AppendEntriesArgs{}
+					reply := AppendEntriesReply{}
+					args.LeaderId = rf.me
+					args.Term = rf.currentTerm
+					rf.sendAppendEntries(server,&args,&reply)//死锁了，2号发给1号，等待1号回来的返回值时，1号发送appendentity给2号，此时2号还在处理发给1号的appendenetity，因此无法返回给1号数据，1号也在等待2号的数据
+					rf.mu.Lock()
+					if(reply.Term > rf.currentTerm){
+						rf.currentTerm = reply.Term
+						rf.state = "follower"
+					}
+					rf.mu.Unlock()
+				}
+			}
+		case "candidate":
+			if(rf.heartbeat_timer < 0 ){
+				// print("id:"+strconv.Itoa(rf.me) + " " + "Term:" + strconv.Itoa(rf.currentTerm)+ " candidate start\n")
+				rf.mu.Lock()
+				rf.votedFor = rf.me
+				rf.currentTerm += 1
+				rf.heartbeat_timer = 1000//设置选举超时时间，超过则重新发起选举
+				rf.mu.Unlock()
+				votes := 0 //选票数量
+				replyTerm := rf.currentTerm //检查其他节点的term	
+				var votesMu sync.Mutex // 用于保护votes阶段变量的互斥锁
+				var wg sync.WaitGroup //用来等待所有投票线程结束以统计结果
+				for server := range rf.peers{
+					if server != rf.me{
+						wg.Add(1) //任务+1
+						go func(server int) {
+							defer wg.Done() //goroutine结束后计数减一
+							args := RequestVoteArgs{}
+							reply := RequestVoteReply{}
+							args.CandidateId = rf.me
+							args.Term = rf.currentTerm
+							ok := rf.sendRequestVote(server, &args, &reply)
+							if(ok){
+								// print("id:" + strconv.Itoa(rf.me) + " got reply " + strconv.Itoa(reply.Term) + " " + strconv.FormatBool(reply.VoteGranted) + "\n")
+								if(reply.VoteGranted){//选票+1
+									// print("id:"+strconv.Itoa(rf.me) + " got vote" +  "\n")
+									votesMu.Lock()
+									votes += 1;
+									votesMu.Unlock()
+								} else {//记录其他节点的最新term
+									votesMu.Lock()
+									if(replyTerm < reply.Term){
+										replyTerm = reply.Term
+									}
+									votesMu.Unlock()
+								}
+							}else{
+								// print("network failed!\n")
+							}
+						}(server)//应该是go routine的语法糖写法吧
+					}
+				}
+				wg.Wait()//等待所有投票询问完成
+				// print("id:"+strconv.Itoa(rf.me) + " got vote:" + strconv.Itoa(votes) + "\n")
+				rf.mu.Lock()
+				if(replyTerm > rf.currentTerm){
+					rf.state = "follower"
+					rf.currentTerm = replyTerm
+				} else {
+					if(votes >= len(rf.peers)/2){//获得半数以上的选票
+						// print("id:"+strconv.Itoa(rf.me) + " become leader " + "\n")
+						rf.state = "leader"
+						for server :=  range rf.peers{//立刻发送一次hearbeat进行告知，防止同时出现多个leader
+							if(server != rf.me){
+								// print("id:"+strconv.Itoa(rf.me) + " " + "sending appendentries to "+strconv.Itoa(server)+ " term:" +strconv.Itoa(rf.currentTerm) + "\n")
+								args := AppendEntriesArgs{}
+								reply := AppendEntriesReply{}
+								args.LeaderId = rf.me
+								args.Term = rf.currentTerm
+								rf.sendAppendEntries(server,&args,&reply)
+							}
+						}
+					}
+				}
+				rf.mu.Unlock()
+			}else{
+				rf.mu.Lock()
+				rf.heartbeat_timer -= ms;
+				rf.mu.Unlock()
+			}
+		}
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
-		ms := 50 + (rand.Int63() % 300)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 }
@@ -247,13 +415,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (3A, 3B, 3C).
-
+	rf.state = "follower"
+	rf.heartbeat_timer = 500
+	rf.currentTerm = 0
+	rf.votedFor = -1
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
-
 
 	return rf
 }
