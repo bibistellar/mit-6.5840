@@ -26,6 +26,22 @@
             "mode": "test",
             "program": "${workspaceFolder}/kvsrv/test_test.go",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Lab3A:Test",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${workspaceFolder}/raft/test_test.go",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Lab3B:Test",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${workspaceFolder}/raft/test_test.go",
+            "console": "integratedTerminal"
         }
     ],
     "compounds": [

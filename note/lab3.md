@@ -1,3 +1,5 @@
+所有rpc调用都应该是并行执行的以提高效率，且应该拥有超时返回的逻辑
+
 lab3A:
     ①所有server启动后进入followers状态，监听来自leader的heartbeat rpc调用。
     ②如果一段时间没有收到任何来自leader的调用，将自身状态置为candidate，term+1，进入选举状态

@@ -49,6 +49,13 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+//日志项
+type LogEntry struct {
+    Command interface{}
+    Term    int
+    Index   int
+}
+
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
@@ -65,6 +72,7 @@ type Raft struct {
 
 	currentTerm int //当前周期
 	votedFor int //当前周期收到的candidate id,可以置为null
+	logs []LogEntry
 	
 	commitIndex int 
 	lastApplied int 
@@ -140,6 +148,10 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 type AppendEntriesArgs struct{
 	Term int
 	LeaderId int 	
+	PrevLogIndex int 
+	prevLogTerm int 
+	Entries []LogEntry
+	LeaderCommit int
 }
 
 type AppendEntriesReply struct{
@@ -258,10 +270,33 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
-	isLeader := true
+	isLeader := false
 
 	// Your code here (3B).
+	// if(rf.state == "leader"){
+	// 	isLeader = true
+	// 	//将command写入到自己的log中
+	// 	rf.mu.Lock()
+	// 	prevLogIndex := 0
+	// 	prevLogTerm := 0
+	// 	if(len(rf.logs)>0){
+	// 		prevLogIndex = rf.logs[len(rf.logs)-1].Index
+	// 		prevLogTerm = rf.logs[len(rf.logs)-1].Term
+	// 	}
+	// 	newLog := LogEntry{Command: command,Term: rf.currentTerm,Index: len(rf.logs)+1}
+	// 	rf.logs = append(rf.logs, newLog)//加入日志
 
+	// 	//广播更改
+	// 	args := AppendEntriesArgs{}
+	// 	args.LeaderId = rf.me
+	// 	args.Term = rf.currentTerm
+	// 	args.prevLogTerm = prevLogTerm
+	// 	args.PrevLogIndex = prevLogIndex
+	// 	args.Entries = append(args.Entries, newLog)
+
+	// 	rf.sendAppendEntries(server,)
+	// 	rf.mu.Unlock()
+	// }
 
 	return index, term, isLeader
 }
@@ -307,18 +342,14 @@ func (rf *Raft) ticker() {
 			// print("id:"+strconv.Itoa(rf.me) + " " + "being leader\n")
 			for server :=  range rf.peers{
 				if(server != rf.me){
-					// print("id:"+strconv.Itoa(rf.me) + " " + "sending appendentries to "+strconv.Itoa(server)+ " term:" +strconv.Itoa(rf.currentTerm) + "\n")
-					args := AppendEntriesArgs{}
-					reply := AppendEntriesReply{}
-					args.LeaderId = rf.me
-					args.Term = rf.currentTerm
-					rf.sendAppendEntries(server,&args,&reply)//死锁了，2号发给1号，等待1号回来的返回值时，1号发送appendentity给2号，此时2号还在处理发给1号的appendenetity，因此无法返回给1号数据，1号也在等待2号的数据
-					rf.mu.Lock()
-					if(reply.Term > rf.currentTerm){
-						rf.currentTerm = reply.Term
-						rf.state = "follower"
-					}
-					rf.mu.Unlock()
+					go func (server int)  {
+						// print("id:"+strconv.Itoa(rf.me) + " " + "sending appendentries to "+strconv.Itoa(server)+ " term:" +strconv.Itoa(rf.currentTerm) + "\n")
+						args := AppendEntriesArgs{}
+						reply := AppendEntriesReply{}
+						args.LeaderId = rf.me
+						args.Term = rf.currentTerm
+						rf.sendAppendEntries(server,&args,&reply)
+					}(server)
 				}
 			}
 		case "candidate":
@@ -375,12 +406,14 @@ func (rf *Raft) ticker() {
 						rf.state = "leader"
 						for server :=  range rf.peers{//立刻发送一次hearbeat进行告知，防止同时出现多个leader
 							if(server != rf.me){
-								// print("id:"+strconv.Itoa(rf.me) + " " + "sending appendentries to "+strconv.Itoa(server)+ " term:" +strconv.Itoa(rf.currentTerm) + "\n")
-								args := AppendEntriesArgs{}
-								reply := AppendEntriesReply{}
-								args.LeaderId = rf.me
-								args.Term = rf.currentTerm
-								rf.sendAppendEntries(server,&args,&reply)
+								go func (server int)  {
+									// print("id:"+strconv.Itoa(rf.me) + " " + "sending appendentries to "+strconv.Itoa(server)+ " term:" +strconv.Itoa(rf.currentTerm) + "\n")
+									args := AppendEntriesArgs{}
+									reply := AppendEntriesReply{}
+									args.LeaderId = rf.me
+									args.Term = rf.currentTerm
+									rf.sendAppendEntries(server,&args,&reply)
+								}(server)
 							}
 						}
 					}
@@ -419,6 +452,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.heartbeat_timer = 500
 	rf.currentTerm = 0
 	rf.votedFor = -1
+
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
