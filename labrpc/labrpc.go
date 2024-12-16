@@ -121,7 +121,7 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
         } else {
             return false
         }
-    case <-time.After(time.Second * 1): // 设置超时时间为1秒
+    case <-time.After(100 * time.Millisecond): // 设置超时时间为1秒
         return false
     }
 }
