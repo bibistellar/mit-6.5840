@@ -30,6 +30,6 @@ lab3B:
     ①日志结构：每个server的日志是一个日志项数组，日志项结构为包含一个command（任意数据结）、一个term和一个index。term表示该日志项被写入的term，index表示该项在数组中的索引（起始为1）
     ②选举限制：发送requestVote RPC时，需要附带本server的log序列信息，如果server收到的vote请求中附带的序列信息比自己落后，那么server会拒绝投票给发来请求的candidate。
     ③raft 应该通过applyCh定义的channel向测试程序发送ApplyMsg提交请求，这样才能被测试程序获取到日志信息
-    ④leader维护两个数组，nextindex和matchindex分别表示下一个要发给follower节点的日志和follower已提交的日志。leader选上后才初始化这两个数组，每次AppendEntry都会收到follower的返回信息，根据其中的信息更新这两个数组
+    ④leader维护两个数组，nextindex和matchindex分别表示下一个要发给follower节点的日志和follower已提交的日志。leader选上后才初始化这两个数组，每次AppendEntry都会收到follower的返回信息，根据其中的信息更新这两个数组。如果follower与leader的日志存在冲突，那么leader根据这个返回值更新两个数组（减少1）并重新同步日志。
     ⑤应该有一个专门的进程负责轮询并根据leader的日志状态发送appendLog RPC给follower
     
