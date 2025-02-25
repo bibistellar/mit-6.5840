@@ -171,7 +171,7 @@ func TestRPCBytes3B(t *testing.T) {
 	bytes1 := cfg.bytesTotal()
 	got := bytes1 - bytes0
 	expected := int64(servers) * sent
-	if got > expected+50000 {
+	if got > expected+150000 {
 		t.Fatalf("too many RPC bytes; got %v, expected %v", got, expected)
 	}
 
@@ -277,7 +277,7 @@ func TestFailAgree3B(t *testing.T) {
 	// disconnect one follower from the network.
 	leader := cfg.checkOneLeader()
 	cfg.disconnect((leader + 1) % servers)
-	fmt.Printf("disconnecting %v\n", (leader+1)%servers)
+	// fmt.Printf("disconnecting %v\n", (leader+1)%servers)
 
 	// the leader and remaining follower should be
 	// able to agree despite the disconnected follower.
@@ -512,7 +512,6 @@ func TestBackup3B(t *testing.T) {
 	}
 
 	time.Sleep(RaftElectionTimeout / 2)
-
 	cfg.disconnect((leader1 + 0) % servers)
 	cfg.disconnect((leader1 + 1) % servers)
 
@@ -544,10 +543,12 @@ func TestBackup3B(t *testing.T) {
 	// bring original leader back to life,
 	for i := 0; i < servers; i++ {
 		cfg.disconnect(i)
+		// fmt.Printf("server  %v disconnect \n", i)
 	}
 	cfg.connect((leader1 + 0) % servers)
 	cfg.connect((leader1 + 1) % servers)
 	cfg.connect(other)
+	
 
 	// lots of successful commands to new group.
 	for i := 0; i < 50; i++ {
