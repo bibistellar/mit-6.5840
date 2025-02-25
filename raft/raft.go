@@ -21,6 +21,7 @@ import (
 	//	"bytes"
 	// "fmt"
 	// "log"
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -222,23 +223,29 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	//处理日志
-	if(args.PrevLogIndex > len(rf.logs) || rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm){
-		reply.Success = false
-		//删除不同步的日志
-		if args.PrevLogIndex <= len(rf.logs) {
-			rf.logs = rf.logs[:args.PrevLogIndex]
-		}
-	}else{
-		//追加日志
-		rf.logs = append(rf.logs, args.Entries...)
+	fmt.Printf("server %d prevLogIndex: %d, len(rf.logs): %d\n",rf.me,args.PrevLogIndex, len(rf.logs))
+	if(args.PrevLogIndex > len(rf.logs)){//没有对应的前序日志
+		return
 	}
+	if(args.PrevLogIndex>0 && rf.logs[args.PrevLogIndex-1].Term != args.PrevLogTerm){//前序日志不匹配
+		return
+	}
+	//追加日志
+	rf.logs = rf.logs[:args.PrevLogIndex]
+	rf.logs = append(rf.logs, args.Entries...)
+	reply.Success = true
 
 	//标记可以提交的日志
 	if args.LeaderCommit > rf.commitIndex {
+		old_commitIndex := rf.commitIndex
 		if(args.LeaderCommit < len(rf.logs)){
 			rf.commitIndex = args.LeaderCommit
 		}else{
 			rf.commitIndex = len(rf.logs)
+		}
+		for i := old_commitIndex+1; i <= rf.commitIndex; i++ {
+			fmt.Printf("follower server %d commitIndex: %d\n", rf.me, i)
+			rf.applyCh <- ApplyMsg{CommandValid: true, Command: rf.logs[i-1].Command, CommandIndex: i}
 		}
 	}
 }
@@ -333,7 +340,7 @@ func (rf *Raft) sendRequestVote() {
 		rf.matchIndex = make([]int, len(rf.peers))
 		rf.nextIndex = make([]int, len(rf.peers))
 		for i := 0; i < len(rf.peers); i++ {
-			rf.nextIndex[i] = len(rf.logs)
+			rf.nextIndex[i] = len(rf.logs) + 1
 			rf.matchIndex[i] = 0
 		}
 		rf.sendHeartBeat()
@@ -344,45 +351,58 @@ func (rf *Raft) sendRequestVote() {
 
 
 func(rf *Raft) replicateToFollower(){
-	for rf.role == "leader" {
+	for rf.role == "leader"{
 		//进行日志同步
-		for i := 0; i < len(rf.peers); i++ {
-			if i != rf.me {
-				go func(server int) {
-					args := &AppendEntriesArgs{
-						Term: rf.currentTerm,
-						LeaderId: rf.me,
-						PrevLogIndex: rf.nextIndex[server]-1,
-						PrevLogTerm: rf.logs[rf.nextIndex[server]-1].Term,
-						Entries: rf.logs[rf.nextIndex[server]:],
-						LeaderCommit: rf.commitIndex,
-					}
-					reply := &AppendEntriesReply{
-						Term: 0,
-						Success: false,
-					}
-					rf.peers[server].Call("Raft.AppendEntries", args, reply)
-					if reply.Success {
-						rf.matchIndex[server] = len(rf.logs)
-						rf.nextIndex[server] = len(rf.logs)
-					} else {
-						rf.nextIndex[server]--
-					}
-				}(i)
-			}
-		}
-
-		//判断是否提交日志并写入applyCh
-		for i := rf.commitIndex; i <= len(rf.logs); i++{
-			count := 1
-			for j := 0; j < len(rf.peers); j++ {
-				if rf.matchIndex[j] >= i {
-					count++
+		if(len(rf.logs)>0){
+			// fmt.Printf("server %d replicateToFollower\n", rf.me)
+			for i := 0; i < len(rf.peers); i++ {
+				if i != rf.me {
+					go func(server int) {
+						prevLogIndex := rf.nextIndex[server]-1
+						PrevLogTerm := -1
+						if prevLogIndex > 0 {
+							PrevLogTerm = rf.logs[prevLogIndex-1].Term
+						}
+						args := &AppendEntriesArgs{
+							Term: rf.currentTerm,
+							LeaderId: rf.me,
+							PrevLogIndex: prevLogIndex,
+							PrevLogTerm:PrevLogTerm,
+							Entries: rf.logs[rf.nextIndex[server]-1:],
+							LeaderCommit: rf.commitIndex,
+						}
+						reply := &AppendEntriesReply{
+							Term: 0,
+							Success: false,
+						}
+						rf.peers[server].Call("Raft.AppendEntries", args, reply)
+						if reply.Success {
+							// fmt.Printf("server %d replicateToFollower success\n", rf.me)
+							rf.matchIndex[server] = len(rf.logs)
+							rf.nextIndex[server] = len(rf.logs)
+						} else {
+							if(rf.nextIndex[server]>1){
+								rf.nextIndex[server]--
+							}
+						}
+					}(i)
 				}
 			}
-			if count > len(rf.peers)/2 {
-				rf.commitIndex = i
-				rf.applyCh <- ApplyMsg{CommandValid: true, Command: rf.logs[i].Command, CommandIndex: i}
+	
+			//判断是否提交日志并写入applyCh
+			for i := rf.commitIndex+1; i <= len(rf.logs); i++{
+				count := 1
+				for j := 0; j < len(rf.peers); j++ {
+					if rf.matchIndex[j] >= i {
+						count++
+					}
+				}
+				// fmt.Printf("server %d %dst log count: %d\n", rf.me,i,count)
+				if count > len(rf.peers)/2 {
+					rf.commitIndex = i
+					fmt.Printf("server %d commitIndex: %d\n", rf.me, rf.commitIndex)
+					rf.applyCh <- ApplyMsg{CommandValid: true, Command: rf.logs[i-1].Command, CommandIndex: i}
+				}
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -412,10 +432,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}else{
 		//append log
 		rf.mu.Lock()
-		index = len(rf.logs)
 		term = rf.currentTerm
 		newLog := LogEntry{Command: command,Term: term,Index: index}
 		rf.logs = append(rf.logs, newLog)
+		index = len(rf.logs)
 		rf.mu.Unlock()
 	}
 	return index, term, isLeader
